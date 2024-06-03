@@ -1,28 +1,91 @@
 import streamlit as st
-from transformers import pipeline,AutoModelForSeq2SeqLM,AutoTokenizer
+from transformers import pipeline,AutoModel,AutoTokenizer
 import pandas as pd
 from datasets import load_dataset
+from utils.utils import preprocess_and_tokenize
+from torchinfo import summary
 
 if "df" not in st.session_state:
     st.session_state.df=None
+
+if "model" not in st.session_state:
+    st.session_state.model=None
+
+if "tokenizer" not in st.session_state:
+    st.session_state.tokenizer=None
 #sidebar
 with st.sidebar:
-    st.write("# 1. Input data")
-    st.write("## 1.1. Use hugging face datasets module")
+    st.write("## 1. Input data")
+    st.write("### 1.1. Use hugging face datasets module")
     dataset_name=st.text_input(label="Enter datasets Name")
-    split=st.text_input(label="Enter dataset split (optional) by default is train[:10000]")
+    split=st.text_input(label="Enter dataset split (optional) by default is train[:1000]")
     if dataset_name:
-        raw_dataset=load_dataset(dataset_name,split=split if split else "train[:10000]" )
+        raw_dataset=load_dataset(dataset_name,split=split if split else "train[:1000]" )
         st.session_state.df=pd.DataFrame(raw_dataset)
 
-    st.write("# 2. Select LLM")
+    st.write("## 2. Select LLM")
+    model_name=st.selectbox(label="Enter Model name",options=["t5-small"])
 
+    with st.expander("# 3. Training parameters"):
+        train_split_ratio=st.slider(label="Train Split",min_value=10,max_value=90,value=80)
+    
+    if st.toggle(label="use LoRA",value=True):
+        r=st.slider(label="r",min_value=2,max_value=28,value=8,step=2)
+        lora_alpha=st.slider("lora_alpha",8,48,16,2)
+        lora_dropout=st.slider("lora_dropout",0.0,0.5,0.05,0.01)
 
 #Main body
 
-st.title("Fine Tune a LLMs")
+st.title("Fine Tune LLMs")
 
-st.subheader("Input data",divider="rainbow")
 if st.session_state.df is not None:
+
+    with st.status("Running",expanded=True) as status:
+        st.write("Showing Input data...")
+        status.write("Splitting data...")
+        raw_dataset=raw_dataset.train_test_split(train_size=train_split_ratio/100)
+
+    st.subheader("Input data",divider="rainbow")
     st.dataframe(st.session_state.df)
+
+    cols=st.columns(3)
+    with cols[0]:
+        st.write("**Training Samples**")
+        st.write(str(len(raw_dataset["train"])))
+    with cols[1]:
+        st.write("**Test Samples**")
+        st.write(str(len(raw_dataset["test"])))
+    with cols[2]:
+        st.write("**Train Ratio**")
+        st.write(str(train_split_ratio)+"%")
+
+    cols=st.columns(2)
+    with cols[0]:#Input
+        X_col_name=st.selectbox(label="Select Input (X)",options=st.session_state.df.columns)
+    with cols[1]:#Label
+        y_col_name=st.selectbox(label="Select target (y)",options=st.session_state.df.columns)
+
+    # if st.button("Fine Tune LLM"):
+    if X_col_name==y_col_name:#Checking whether X and y are same
+        st.error("Input and target cannot be same...")
+        status.update(label="An error occured",state="error")
+        st.stop()
+
+    status.write("Downloading model...")
+    if st.session_state.model==None:
+        st.session_state.model=AutoModel.from_pretrained(model_name)
+
+    status.write("Downloading tokenizer...")
+    if st.session_state.tokenizer==None:
+        st.session_state.tokenizer=AutoTokenizer.from_pretrained(model_name)
+
+    status.write("Tokenizing data...")
+    tokenized_dataset=raw_dataset.map(preprocess_and_tokenize,fn_kwargs={"X_col_name":X_col_name,"y_col_name":y_col_name,"tokenizer":st.session_state.tokenizer},batched=True)
+    # print(tokenized_dataset[0])
+    
+    with st.container():
+        st.subheader("Model Summary:",divider="rainbow")
+        st.write(summary(st.session_state.model))
+
+
     
