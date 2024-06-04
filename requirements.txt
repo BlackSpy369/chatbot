@@ -6,3 +6,4 @@ datasets
 numpy
 peft
 accelerate
+torchinfo
