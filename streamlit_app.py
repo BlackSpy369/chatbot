@@ -113,21 +113,21 @@ if st.session_state.df is not None:
             with cols[1]:
                 st.write(st.session_state.lora_model)
 
-    status.write("Fine Tuning LLM...")
-    training_args=TrainingArguments(
-        output_dir="output",
-        per_device_eval_batch_size=per_device_eval_batch_size,
-        per_device_train_batch_size=per_device_train_batch_size,
-        logging_steps=logging_steps
-    )
+    # status.write("Fine Tuning LLM...")
+    # training_args=TrainingArguments(
+    #     output_dir="output",
+    #     per_device_eval_batch_size=per_device_eval_batch_size,
+    #     per_device_train_batch_size=per_device_train_batch_size,
+    #     logging_steps=logging_steps
+    # )
 
-    trainer=Trainer(
-        st.session_state.lora_model if st.session_state.lora_model else st.session_state.model,
-        training_args,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["test"],
-        tokenizer=st.session_state.tokenizer
-    )
+    # trainer=Trainer(
+    #     st.session_state.lora_model if st.session_state.lora_model else st.session_state.model,
+    #     training_args,
+    #     train_dataset=tokenized_dataset["train"],
+    #     eval_dataset=tokenized_dataset["test"],
+    #     tokenizer=st.session_state.tokenizer
+    # )
 
-    trainer.train()
-    st.write("### Model trained")
+    # trainer.train()
+    # st.write("### Model trained")
