@@ -1,9 +1,11 @@
 import streamlit as st
-from transformers import pipeline,AutoModel,AutoTokenizer
+from transformers import pipeline,AutoModel,AutoTokenizer,Trainer,TrainingArguments
 import pandas as pd
 from datasets import load_dataset
-from utils.utils import preprocess_and_tokenize
+from utils.utils import preprocess_and_tokenize,make_lora_model
 from torchinfo import summary
+from peft import LoraConfig
+
 
 if "df" not in st.session_state:
     st.session_state.df=None
@@ -13,14 +15,15 @@ if "model" not in st.session_state:
 
 if "tokenizer" not in st.session_state:
     st.session_state.tokenizer=None
+
 #sidebar
 with st.sidebar:
     st.write("## 1. Input data")
     st.write("### 1.1. Use hugging face datasets module")
-    dataset_name=st.text_input(label="Enter datasets Name")
-    split=st.text_input(label="Enter dataset split (optional) by default is train[:1000]")
+    dataset_name=st.text_input(label="Enter datasets Name",placeholder="e.g. billsum")
+    split=st.text_input(label="Enter dataset split (optional) by default is train[:100]")
     if dataset_name:
-        raw_dataset=load_dataset(dataset_name,split=split if split else "train[:1000]" )
+        raw_dataset=load_dataset(dataset_name,split=split if split else "train[:100]" )
         st.session_state.df=pd.DataFrame(raw_dataset)
 
     st.write("## 2. Select LLM")
@@ -28,11 +31,17 @@ with st.sidebar:
 
     with st.expander("# 3. Training parameters"):
         train_split_ratio=st.slider(label="Train Split",min_value=10,max_value=90,value=80)
+        per_device_train_batch_size=st.slider("per_device_train_batch_size",1,64,4,1)
+        per_device_eval_batch_size=st.slider("per_device_eval_batch_size",1,64,4,1)
+        logging_steps=st.slider("logging_steps",10,1000,100,10)
     
-    if st.toggle(label="use LoRA",value=True):
+    use_lora=st.toggle(label="use LoRA",value=True)
+    if use_lora:
         r=st.slider(label="r",min_value=2,max_value=28,value=8,step=2)
         lora_alpha=st.slider("lora_alpha",8,48,16,2)
         lora_dropout=st.slider("lora_dropout",0.0,0.5,0.05,0.01)
+        st.warning("target_modules name should be seperated by comma (,)")
+        target_modules=st.text_input(label="target_modules")
 
 #Main body
 
@@ -67,7 +76,7 @@ if st.session_state.df is not None:
 
     # if st.button("Fine Tune LLM"):
     if X_col_name==y_col_name:#Checking whether X and y are same
-        st.error("Input and target cannot be same...")
+        st.error("Input(X) and target(y) cannot be same...")
         status.update(label="An error occured",state="error")
         st.stop()
 
@@ -80,12 +89,44 @@ if st.session_state.df is not None:
         st.session_state.tokenizer=AutoTokenizer.from_pretrained(model_name)
 
     status.write("Tokenizing data...")
+
     tokenized_dataset=raw_dataset.map(preprocess_and_tokenize,fn_kwargs={"X_col_name":X_col_name,"y_col_name":y_col_name,"tokenizer":st.session_state.tokenizer},batched=True)
     # print(tokenized_dataset[0])
     
-    with st.container():
+    with st.container(height=500):
         st.subheader("Model Summary:",divider="rainbow")
-        st.write(summary(st.session_state.model))
-
-
+        cols=st.columns(2)
+        with cols[0]:
+            st.write(summary(st.session_state.model))
+        with cols[1]:
+            st.write(str(st.session_state.model))
     
+    if use_lora:
+        status.write("Applying LoRA...")
+        st.session_state.lora_config=LoraConfig(r=r,lora_alpha=lora_alpha,lora_dropout=lora_dropout,target_modules=target_modules.split(","))
+        st.session_state.lora_model=make_lora_model(st.session_state.model,st.session_state.lora_config)
+        with st.container(height=500):
+            st.subheader("LoRA Model Summary:",divider="rainbow")
+            cols=st.columns(2)
+            with cols[0]:
+                st.write(summary(st.session_state.lora_model))
+            with cols[1]:
+                st.write(st.session_state.lora_model)
+
+    status.write("Fine Tuning LLM...")
+    training_args=TrainingArguments(
+        output_dir="output",
+        per_device_eval_batch_size=per_device_eval_batch_size,
+        per_device_train_batch_size=per_device_train_batch_size,
+        logging_steps=logging_steps
+    )
+
+    trainer=Trainer(
+        st.session_state.lora_model if st.session_state.lora_model else st.session_state.model,
+        training_args,
+        train_dataset=tokenized_dataset["train"],
+        eval_dataset=tokenized_dataset["test"],
+        tokenizer=st.session_state.tokenizer
+    )
+
+    # trainer.train()
