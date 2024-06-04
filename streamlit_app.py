@@ -129,4 +129,5 @@ if st.session_state.df is not None:
         tokenizer=st.session_state.tokenizer
     )
 
-    # trainer.train()
+    trainer.train()
+    st.write("### Model trained")
